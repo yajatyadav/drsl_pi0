@@ -13,7 +13,7 @@ from jaxrl2.utils.general_utils import add_batch_dim
 import numpy as np
 
 import gymnasium as gym
-import gym_aloha
+# import gym_aloha
 from gym.spaces import Dict, Box
 
 from libero.libero import benchmark
@@ -119,18 +119,19 @@ def main(variant):
         variant.env_max_reward = 1
         variant.max_timesteps = 400
     elif variant.env == 'aloha_cube':
-        from gymnasium.envs.registration import register
-        register(
-            id="gym_aloha/AlohaTransferCube-v0",
-            entry_point="gym_aloha.env:AlohaEnv",
-            max_episode_steps=400,
-            nondeterministic=True,
-            kwargs={"obs_type": "pixels", "task": "transfer_cube"},
-        )
-        env = gym.make("gym_aloha/AlohaTransferCube-v0", obs_type="pixels_agent_pos", render_mode="rgb_array")
-        eval_env = copy.deepcopy(env)
-        variant.env_max_reward = 4
-        variant.max_timesteps = 400
+        raise NotImplementedError("aloha cube is not implemented yet")
+        # from gymnasium.envs.registration import register
+        # register(
+        #     id="gym_aloha/AlohaTransferCube-v0",
+        #     entry_point="gym_aloha.env:AlohaEnv",
+        #     max_episode_steps=400,
+        #     nondeterministic=True,
+        #     kwargs={"obs_type": "pixels", "task": "transfer_cube"},
+        # )
+        # env = gym.make("gym_aloha/AlohaTransferCube-v0", obs_type="pixels_agent_pos", render_mode="rgb_array")
+        # eval_env = copy.deepcopy(env)
+        # variant.env_max_reward = 4
+        # variant.max_timesteps = 400
         
 
     group_name = variant.prefix + '_' + variant.launch_group_id

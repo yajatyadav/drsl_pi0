@@ -1,3 +1,4 @@
+import os
 from tqdm import tqdm
 import numpy as np
 import wandb
@@ -96,12 +97,14 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
 
     total_env_steps = 0
     i = 0
+    traj_save_number = 0
     wandb_logger.log({'num_online_samples': 0}, step=i)
     wandb_logger.log({'num_online_trajs': 0}, step=i)
     wandb_logger.log({'env_steps': 0}, step=i)
     
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
+            print(f"collecting new trajectory, {i=}")
             traj = collect_traj(variant, agent, env, i, agent_dp)
             traj_id = online_replay_buffer._traj_counter
             add_online_data_to_buffer(variant, traj, online_replay_buffer)
@@ -205,6 +208,8 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
     image_list = [] # for visualization
     rewards = []
     action_list = []
+    ALL_ACTIONS_LIST = []
+    ALL_OBS_LIST = []
     obs_list = []
 
     for t in tqdm(range(max_timesteps)):
@@ -221,6 +226,7 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
             obs_dict = {
                 'pixels': curr_image[np.newaxis, ..., np.newaxis],
             }
+        ALL_OBS_LIST.append(obs_dict)
 
         if t % query_frequency == 0:
 
@@ -244,8 +250,10 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
             actions = agent_dp.infer(obs_pi_zero, noise=noise)["actions"]
             action_list.append(actions_noise)
             obs_list.append(obs_dict)
-     
+
+
         action_t = actions[t % query_frequency]
+        ALL_ACTIONS_LIST.append(action_t)
         if 'libero' in variant.env:
             obs, reward, done, _ = env.step(action_t)
         elif 'aloha' in variant.env:
@@ -286,9 +294,11 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
         rewards = -np.ones(query_steps)
         masks = np.ones(query_steps)
 
-    return {
+    traj =  {
         'observations': obs_list,
         'actions': action_list,
+        'ALL_ACTIONS_LIST': ALL_ACTIONS_LIST,
+        'ALL_OBS_LIST': ALL_OBS_LIST,
         'rewards': rewards,
         'masks': masks,
         'is_success': is_success,
@@ -296,6 +306,12 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
         'images': image_list,
         'env_steps': t + 1 
     }
+
+    traj_save_path = os.path.join(variant.outputdir, f'traj_{traj_save_number}_during_training__success_{is_success}_return_{episode_return}.npy')
+    print(f'Saving traj {traj_save_number} to {traj_save_path}')
+    np.save(traj_save_path, traj, allow_pickle=True)
+    traj_save_number += 1
+    return traj
 
 def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
     query_frequency = variant.query_freq
