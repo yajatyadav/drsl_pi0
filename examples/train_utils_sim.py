@@ -105,7 +105,8 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
             print(f"collecting new trajectory, {i=}")
-            traj = collect_traj(variant, agent, env, i, agent_dp)
+            traj = collect_traj(variant, agent, env, i, agent_dp, traj_save_number)
+            traj_save_number += 1
             traj_id = online_replay_buffer._traj_counter
             add_online_data_to_buffer(variant, traj, online_replay_buffer)
             total_env_steps += traj['env_steps']
@@ -193,7 +194,7 @@ def add_online_data_to_buffer(variant, traj, online_replay_buffer):
         online_replay_buffer.insert(insert_dict)
     online_replay_buffer.increment_traj_counter()
 
-def collect_traj(variant, agent, env, i, agent_dp=None):
+def collect_traj(variant, agent, env, i, agent_dp=None, traj_save_number=None):
     query_frequency = variant.query_freq
     max_timesteps = variant.max_timesteps
     env_max_reward = variant.env_max_reward
@@ -226,7 +227,8 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
             obs_dict = {
                 'pixels': curr_image[np.newaxis, ..., np.newaxis],
             }
-        ALL_OBS_LIST.append(obs_dict)
+        OBS_TO_SAVE = obs_to_pi_zero_input(obs, variant)
+        ALL_OBS_LIST.append(OBS_TO_SAVE)
 
         if t % query_frequency == 0:
 
@@ -310,7 +312,6 @@ def collect_traj(variant, agent, env, i, agent_dp=None):
     traj_save_path = os.path.join(variant.outputdir, f'traj_{traj_save_number}_during_training__success_{is_success}_return_{episode_return}.npy')
     print(f'Saving traj {traj_save_number} to {traj_save_path}')
     np.save(traj_save_path, traj, allow_pickle=True)
-    traj_save_number += 1
     return traj
 
 def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
