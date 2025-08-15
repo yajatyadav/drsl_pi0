@@ -160,8 +160,10 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
                         if hasattr(agent, 'perform_eval'):
                             agent.perform_eval(variant, i, wandb_logger, replay_buffer, replay_buffer_iterator, eval_env)
 
-                    if variant.checkpoint_interval != -1 and i % variant.checkpoint_interval == 0:
-                        agent.save_checkpoint(variant.outputdir, i, variant.checkpoint_interval)
+                    # added the 'or i == 0' to ensure that no matter what, the very first checkpoint is always taken!
+                    if (variant.checkpoint_interval != -1 and i % variant.checkpoint_interval == 0) or (i == 1):
+                        ckpt_abs_path = os.path.abspath(variant.outputdir)
+                        agent.save_checkpoint(ckpt_abs_path, i, variant.checkpoint_interval)
 
             
 def add_online_data_to_buffer(variant, traj, online_replay_buffer):
@@ -194,7 +196,7 @@ def add_online_data_to_buffer(variant, traj, online_replay_buffer):
         online_replay_buffer.insert(insert_dict)
     online_replay_buffer.increment_traj_counter()
 
-def collect_traj(variant, agent, env, i, agent_dp=None, traj_save_number=None):
+def collect_traj(variant, agent, env, i, agent_dp=None, traj_save_number=None, is_eval=False):
     query_frequency = variant.query_freq
     max_timesteps = variant.max_timesteps
     env_max_reward = variant.env_max_reward
@@ -309,7 +311,8 @@ def collect_traj(variant, agent, env, i, agent_dp=None, traj_save_number=None):
         'env_steps': t + 1 
     }
 
-    traj_save_path = os.path.join(variant.outputdir, f'traj_{traj_save_number}_during_training__success_{is_success}_return_{episode_return}.npy')
+    desc = "training" if not is_eval else "eval"
+    traj_save_path = os.path.join(variant.outputdir, f'traj_{traj_save_number}_during_{desc}__success_{is_success}_return_{episode_return}.npy')
     print(f'Saving traj {traj_save_number} to {traj_save_path}')
     np.save(traj_save_path, traj, allow_pickle=True)
     return traj
@@ -334,10 +337,16 @@ def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
             
         image_list = [] # for visualization
         rewards = []
+
+        ALL_ACTIONS_LIST = []
+        ALL_OBS_LIST = []
         
 
         for t in tqdm(range(max_timesteps)):
             curr_image = obs_to_img(obs, variant)
+
+            OBS_TO_SAVE = obs_to_pi_zero_input(obs, variant)
+            ALL_OBS_LIST.append(OBS_TO_SAVE)
 
             if t % query_frequency == 0:
                 qpos = obs_to_qpos(obs, variant)
@@ -350,6 +359,7 @@ def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
                     obs_dict = {
                         'pixels': curr_image[np.newaxis, ..., np.newaxis],
                     }
+                
 
                 rng, key = jax.random.split(rng)
                 assert agent_dp is not None
@@ -369,6 +379,7 @@ def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
                 actions = agent_dp.infer(obs_pi_zero, noise=noise)["actions"]
               
             action_t = actions[t % query_frequency]
+            ALL_ACTIONS_LIST.append(action_t)
             
             if 'libero' in variant.env:
                 obs, reward, done, _ = env.step(action_t)
@@ -390,6 +401,20 @@ def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
         highest_rewards.append(episode_highest_reward)
         is_success = (reward == env_max_reward)
         success_rates.append(is_success)
+
+        traj_to_save = {
+            'ALL_OBS_LIST': ALL_OBS_LIST,
+            'ALL_ACTIONS_LIST': ALL_ACTIONS_LIST,
+            'rewards': rewards,
+            'is_success': is_success,
+            'episode_return': episode_return,
+            'episode_lens': t + 1,
+            'env_steps': t + 1,
+        }
+        
+        traj_save_path = os.path.join(variant.outputdir, f'traj_{rollout_id}_during_eval__success_{is_success}_return_{episode_return}.npy')
+        print(f'Saving traj {rollout_id} to {traj_save_path}')
+        np.save(traj_save_path, traj_to_save, allow_pickle=True)
                 
         print(f'Rollout {rollout_id} : {episode_return=}, Success: {is_success}')
         video = np.stack(image_list).transpose(0, 3, 1, 2)
